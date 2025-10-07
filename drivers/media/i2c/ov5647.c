@@ -1398,11 +1398,10 @@ static int ov5647_probe(struct i2c_client *client)
 		}
 	}
 
-	sensor->xclk = devm_clk_get(dev, NULL);
-	if (IS_ERR(sensor->xclk)) {
-		dev_err(dev, "could not get xclk");
-		return PTR_ERR(sensor->xclk);
-	}
+	sensor->xclk = devm_v4l2_sensor_clk_get(dev, NULL);
+	if (IS_ERR(sensor->xclk))
+		return dev_err_probe(dev, PTR_ERR(sensor->xclk),
+				     "could not get xclk\n");
 
 	xclk_freq = clk_get_rate(sensor->xclk);
 	if (xclk_freq != 25000000) {
@@ -1487,7 +1486,7 @@ static const struct dev_pm_ops ov5647_pm_ops = {
 };
 
 static const struct i2c_device_id ov5647_id[] = {
-	{ "ov5647", 0 },
+	{ "ov5647" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(i2c, ov5647_id);

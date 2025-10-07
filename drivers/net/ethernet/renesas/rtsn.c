@@ -1057,6 +1057,7 @@ static netdev_tx_t rtsn_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	if (skb->len >= TX_DS) {
 		priv->stats.tx_dropped++;
 		priv->stats.tx_errors++;
+		dev_kfree_skb_any(skb);
 		goto out;
 	}
 
@@ -1258,7 +1259,12 @@ static int rtsn_probe(struct platform_device *pdev)
 	priv = netdev_priv(ndev);
 	priv->pdev = pdev;
 	priv->ndev = ndev;
+
 	priv->ptp_priv = rcar_gen4_ptp_alloc(pdev);
+	if (!priv->ptp_priv) {
+		ret = -ENOMEM;
+		goto error_free;
+	}
 
 	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, priv);
@@ -1324,8 +1330,7 @@ static int rtsn_probe(struct platform_device *pdev)
 
 	device_set_wakeup_capable(&pdev->dev, 1);
 
-	ret = rcar_gen4_ptp_register(priv->ptp_priv, RCAR_GEN4_PTP_REG_LAYOUT,
-				     clk_get_rate(priv->clk));
+	ret = rcar_gen4_ptp_register(priv->ptp_priv, clk_get_rate(priv->clk));
 	if (ret)
 		goto error_pm;
 

@@ -42,6 +42,17 @@ static const struct adreno_info a3xx_gpus[] = {
 		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
 		.init  = a3xx_gpu_init,
 	}, {
+		.chip_ids = ADRENO_CHIP_IDS(0x03000620),
+		.family = ADRENO_3XX,
+		.revn = 308,
+		.fw = {
+			[ADRENO_FW_PM4] = "a300_pm4.fw",
+			[ADRENO_FW_PFP] = "a300_pfp.fw",
+		},
+		.gmem = SZ_128K,
+		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
+		.init = a3xx_gpu_init,
+	}, {
 		.chip_ids = ADRENO_CHIP_IDS(
 			0x03020000,
 			0x03020001,
@@ -74,8 +85,3 @@ static const struct adreno_info a3xx_gpus[] = {
 	}
 };
 DECLARE_ADRENO_GPULIST(a3xx);
-
-MODULE_FIRMWARE("qcom/a300_pm4.fw");
-MODULE_FIRMWARE("qcom/a300_pfp.fw");
-MODULE_FIRMWARE("qcom/a330_pm4.fw");
-MODULE_FIRMWARE("qcom/a330_pfp.fw");

@@ -614,7 +614,10 @@ it.
 
 When commenting the kernel API functions, please use the kernel-doc format.
 See the files at :ref:`Documentation/doc-guide/ <doc_guide>` and
-``scripts/kernel-doc`` for details.
+``scripts/kernel-doc`` for details. Note that the danger of over-commenting
+applies to kernel-doc comments all the same. Do not add boilerplate
+kernel-doc which simply reiterates what's obvious from the signature
+of the function.
 
 The preferred style for long (multi-line) comments is:
 
@@ -986,7 +989,7 @@ that can go into these 5 milliseconds.
 
 A reasonable rule of thumb is to not put inline at functions that have more
 than 3 lines of code in them. An exception to this rule are the cases where
-a parameter is known to be a compiletime constant, and as a result of this
+a parameter is known to be a compile time constant, and as a result of this
 constantness you *know* the compiler will be able to optimize most of your
 function away at compile time. For a good example of this later case, see
 the kmalloc() inline function.

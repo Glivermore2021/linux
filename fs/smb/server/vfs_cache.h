@@ -44,6 +44,7 @@ struct ksmbd_lock {
 struct stream {
 	char *name;
 	ssize_t size;
+	loff_t pos;
 };
 
 struct ksmbd_inode {
@@ -100,8 +101,8 @@ struct ksmbd_file {
 	struct list_head		blocked_works;
 	struct list_head		lock_list;
 
-	int				durable_timeout;
-	int				durable_scavenger_timeout;
+	unsigned int			durable_timeout;
+	unsigned int			durable_scavenger_timeout;
 
 	/* if ls is happening on directory, below is valid*/
 	struct ksmbd_readdir_data	readdir_data;
@@ -111,6 +112,8 @@ struct ksmbd_file {
 	bool				is_durable;
 	bool				is_persistent;
 	bool				is_resilient;
+
+	bool                            is_posix_ctxt;
 };
 
 static inline void set_ctx_actor(struct dir_context *ctx,

@@ -57,7 +57,18 @@ struct mem_bank_data {
 };
 
 /**
- * struct mbox_info
+ * struct zynqmp_sram_bank - sram bank description
+ *
+ * @sram_res: sram address region information
+ * @da: device address of sram
+ */
+struct zynqmp_sram_bank {
+	struct resource sram_res;
+	u32 da;
+};
+
+/**
+ * struct mbox_info - mailbox channel data
  *
  * @rx_mc_buf: to copy data from mailbox rx channel
  * @tx_mc_buf: to copy data to mailbox tx channel
@@ -78,7 +89,7 @@ struct mbox_info {
 };
 
 /**
- * struct rsc_tbl_data
+ * struct rsc_tbl_data - resource table metadata
  *
  * Platform specific data structure used to sync resource table address.
  * It's important to maintain order and size of each field on remote side.
@@ -117,9 +128,11 @@ static const struct mem_bank_data zynqmp_tcm_banks_lockstep[] = {
 };
 
 /**
- * struct zynqmp_r5_core
+ * struct zynqmp_r5_core - remoteproc core's internal data
  *
  * @rsc_tbl_va: resource table virtual address
+ * @sram: Array of sram memories assigned to this core
+ * @num_sram: number of sram for this core
  * @dev: device of RPU instance
  * @np: device node of RPU instance
  * @tcm_bank_count: number TCM banks accessible to this RPU
@@ -131,6 +144,8 @@ static const struct mem_bank_data zynqmp_tcm_banks_lockstep[] = {
  */
 struct zynqmp_r5_core {
 	void __iomem *rsc_tbl_va;
+	struct zynqmp_sram_bank *sram;
+	int num_sram;
 	struct device *dev;
 	struct device_node *np;
 	int tcm_bank_count;
@@ -142,7 +157,7 @@ struct zynqmp_r5_core {
 };
 
 /**
- * struct zynqmp_r5_cluster
+ * struct zynqmp_r5_cluster - remoteproc cluster's internal data
  *
  * @dev: r5f subsystem cluster device node
  * @mode: cluster mode of type zynqmp_r5_cluster_mode
@@ -365,6 +380,18 @@ static int zynqmp_r5_rproc_start(struct rproc *rproc)
 	dev_dbg(r5_core->dev, "RPU boot addr 0x%llx from %s.", rproc->bootaddr,
 		bootmem == PM_RPU_BOOTMEM_HIVEC ? "OCM" : "TCM");
 
+	/* Request node before starting RPU core if new version of API is supported */
+	if (zynqmp_pm_feature(PM_REQUEST_NODE) > 1) {
+		ret = zynqmp_pm_request_node(r5_core->pm_domain_id,
+					     ZYNQMP_PM_CAPABILITY_ACCESS, 0,
+					     ZYNQMP_PM_REQUEST_ACK_BLOCKING);
+		if (ret < 0) {
+			dev_err(r5_core->dev, "failed to request 0x%x",
+				r5_core->pm_domain_id);
+			return ret;
+		}
+	}
+
 	ret = zynqmp_pm_request_wake(r5_core->pm_domain_id, 1,
 				     bootmem, ZYNQMP_PM_REQUEST_ACK_NO);
 	if (ret)
@@ -386,10 +413,30 @@ static int zynqmp_r5_rproc_stop(struct rproc *rproc)
 	struct zynqmp_r5_core *r5_core = rproc->priv;
 	int ret;
 
+	/* Use release node API to stop core if new version of API is supported */
+	if (zynqmp_pm_feature(PM_RELEASE_NODE) > 1) {
+		ret = zynqmp_pm_release_node(r5_core->pm_domain_id);
+		if (ret)
+			dev_err(r5_core->dev, "failed to stop remoteproc RPU %d\n", ret);
+		return ret;
+	}
+
+	/*
+	 * Check expected version of EEMI call before calling it. This avoids
+	 * any error or warning prints from firmware as it is expected that fw
+	 * doesn't support it.
+	 */
+	if (zynqmp_pm_feature(PM_FORCE_POWERDOWN) != 1) {
+		dev_dbg(r5_core->dev, "EEMI interface %d ver 1 not supported\n",
+			PM_FORCE_POWERDOWN);
+		return -EOPNOTSUPP;
+	}
+
+	/* maintain force pwr down for backward compatibility */
 	ret = zynqmp_pm_force_pwrdwn(r5_core->pm_domain_id,
 				     ZYNQMP_PM_REQUEST_ACK_BLOCKING);
 	if (ret)
-		dev_err(r5_core->dev, "failed to stop remoteproc RPU %d\n", ret);
+		dev_err(r5_core->dev, "core force power down failed\n");
 
 	return ret;
 }
@@ -489,6 +536,45 @@ static int add_mem_regions_carveout(struct rproc *rproc)
 		dev_dbg(&rproc->dev, "reserved mem carveout %s addr=%llx, size=0x%llx",
 			it.node->name, rmem->base, rmem->size);
 		i++;
+	}
+
+	return 0;
+}
+
+static int add_sram_carveouts(struct rproc *rproc)
+{
+	struct zynqmp_r5_core *r5_core = rproc->priv;
+	struct rproc_mem_entry *rproc_mem;
+	struct zynqmp_sram_bank *sram;
+	dma_addr_t dma_addr;
+	size_t len;
+	int da, i;
+
+	for (i = 0; i < r5_core->num_sram; i++) {
+		sram = &r5_core->sram[i];
+
+		dma_addr = (dma_addr_t)sram->sram_res.start;
+
+		len = resource_size(&sram->sram_res);
+		da = sram->da;
+
+		rproc_mem = rproc_mem_entry_init(&rproc->dev, NULL,
+						 dma_addr,
+						 len, da,
+						 zynqmp_r5_mem_region_map,
+						 zynqmp_r5_mem_region_unmap,
+						 sram->sram_res.name);
+		if (!rproc_mem) {
+			dev_err(&rproc->dev, "failed to add sram %s da=0x%x, size=0x%lx",
+				sram->sram_res.name, da, len);
+			return -ENOMEM;
+		}
+
+		rproc_add_carveout(rproc, rproc_mem);
+		rproc_coredump_add_segment(rproc, da, len);
+
+		dev_dbg(&rproc->dev, "sram carveout %s addr=%llx, da=0x%x, size=0x%lx",
+			sram->sram_res.name, dma_addr, da, len);
 	}
 
 	return 0;
@@ -646,7 +732,7 @@ static int zynqmp_r5_parse_fw(struct rproc *rproc, const struct firmware *fw)
 }
 
 /**
- * zynqmp_r5_rproc_prepare()
+ * zynqmp_r5_rproc_prepare() - prepare core to boot/attach
  * adds carveouts for TCM bank and reserved memory regions
  *
  * @rproc: Device node of each rproc
@@ -669,11 +755,17 @@ static int zynqmp_r5_rproc_prepare(struct rproc *rproc)
 		return ret;
 	}
 
+	ret = add_sram_carveouts(rproc);
+	if (ret) {
+		dev_err(&rproc->dev, "failed to get sram carveout %d\n", ret);
+		return ret;
+	}
+
 	return 0;
 }
 
 /**
- * zynqmp_r5_rproc_unprepare()
+ * zynqmp_r5_rproc_unprepare() - programming sequence after stop/detach.
  * Turns off TCM banks using power-domain id
  *
  * @rproc: Device node of each rproc
@@ -816,7 +908,7 @@ static const struct rproc_ops zynqmp_r5_rproc_ops = {
 };
 
 /**
- * zynqmp_r5_add_rproc_core()
+ * zynqmp_r5_add_rproc_core() - Add core data to framework.
  * Allocate and add struct rproc object for each r5f core
  * This is called for each individual r5f core
  *
@@ -846,6 +938,8 @@ static struct zynqmp_r5_core *zynqmp_r5_add_rproc_core(struct device *cdev)
 
 	rproc_coredump_set_elf_info(r5_rproc, ELFCLASS32, EM_ARM);
 
+	r5_rproc->recovery_disabled = true;
+	r5_rproc->has_iommu = false;
 	r5_rproc->auto_boot = false;
 	r5_core = r5_rproc->priv;
 	r5_core->dev = cdev;
@@ -879,6 +973,77 @@ static struct zynqmp_r5_core *zynqmp_r5_add_rproc_core(struct device *cdev)
 free_rproc:
 	rproc_free(r5_rproc);
 	return ERR_PTR(ret);
+}
+
+static int zynqmp_r5_get_sram_banks(struct zynqmp_r5_core *r5_core)
+{
+	struct device_node *np = r5_core->np;
+	struct device *dev = r5_core->dev;
+	struct zynqmp_sram_bank *sram;
+	struct device_node *sram_np;
+	int num_sram, i, ret;
+	u64 abs_addr, size;
+
+	/* "sram" is optional property. Do not fail, if unavailable. */
+	if (!of_property_present(r5_core->np, "sram"))
+		return 0;
+
+	num_sram = of_property_count_elems_of_size(np, "sram", sizeof(phandle));
+	if (num_sram <= 0) {
+		dev_err(dev, "Invalid sram property, ret = %d\n",
+			num_sram);
+		return -EINVAL;
+	}
+
+	sram = devm_kcalloc(dev, num_sram,
+			    sizeof(struct zynqmp_sram_bank), GFP_KERNEL);
+	if (!sram)
+		return -ENOMEM;
+
+	for (i = 0; i < num_sram; i++) {
+		sram_np = of_parse_phandle(np, "sram", i);
+		if (!sram_np) {
+			dev_err(dev, "failed to get sram %d phandle\n", i);
+			return -EINVAL;
+		}
+
+		if (!of_device_is_available(sram_np)) {
+			dev_err(dev, "sram device not available\n");
+			ret = -EINVAL;
+			goto fail_sram_get;
+		}
+
+		ret = of_address_to_resource(sram_np, 0, &sram[i].sram_res);
+		if (ret) {
+			dev_err(dev, "addr to res failed\n");
+			goto fail_sram_get;
+		}
+
+		/* Get SRAM device address */
+		ret = of_property_read_reg(sram_np, i, &abs_addr, &size);
+		if (ret) {
+			dev_err(dev, "failed to get reg property\n");
+			goto fail_sram_get;
+		}
+
+		sram[i].da = (u32)abs_addr;
+
+		of_node_put(sram_np);
+
+		dev_dbg(dev, "sram %d: name=%s, addr=0x%llx, da=0x%x, size=0x%llx\n",
+			i, sram[i].sram_res.name, sram[i].sram_res.start,
+			sram[i].da, resource_size(&sram[i].sram_res));
+	}
+
+	r5_core->sram = sram;
+	r5_core->num_sram = num_sram;
+
+	return 0;
+
+fail_sram_get:
+	of_node_put(sram_np);
+
+	return ret;
 }
 
 static int zynqmp_r5_get_tcm_node_from_dt(struct zynqmp_r5_cluster *cluster)
@@ -979,7 +1144,7 @@ static int zynqmp_r5_get_tcm_node_from_dt(struct zynqmp_r5_cluster *cluster)
 }
 
 /**
- * zynqmp_r5_get_tcm_node()
+ * zynqmp_r5_get_tcm_node() - Get TCM info
  * Ideally this function should parse tcm node and store information
  * in r5_core instance. For now, Hardcoded TCM information is used.
  * This approach is used as TCM bindings for system-dt is being developed
@@ -1059,7 +1224,7 @@ static int zynqmp_r5_core_init(struct zynqmp_r5_cluster *cluster,
 	r5_core = cluster->r5_cores[0];
 
 	/* Maintain backward compatibility for zynqmp by using hardcode TCM address. */
-	if (of_find_property(r5_core->np, "reg", NULL))
+	if (of_property_present(r5_core->np, "reg"))
 		ret = zynqmp_r5_get_tcm_node_from_dt(cluster);
 	else if (device_is_compatible(dev, "xlnx,zynqmp-r5fss"))
 		ret = zynqmp_r5_get_tcm_node(cluster);
@@ -1086,7 +1251,7 @@ static int zynqmp_r5_core_init(struct zynqmp_r5_cluster *cluster,
 			return ret;
 		}
 
-		if (of_find_property(dev_of_node(dev), "xlnx,tcm-mode", NULL) ||
+		if (of_property_present(dev_of_node(dev), "xlnx,tcm-mode") ||
 		    device_is_compatible(dev, "xlnx,zynqmp-r5fss")) {
 			ret = zynqmp_pm_set_tcm_config(r5_core->pm_domain_id,
 						       tcm_mode);
@@ -1095,6 +1260,10 @@ static int zynqmp_r5_core_init(struct zynqmp_r5_cluster *cluster,
 				return ret;
 			}
 		}
+
+		ret = zynqmp_r5_get_sram_banks(r5_core);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
@@ -1147,7 +1316,7 @@ static int zynqmp_r5_cluster_init(struct zynqmp_r5_cluster *cluster)
 		return -EINVAL;
 	}
 
-	if (of_find_property(dev_node, "xlnx,tcm-mode", NULL)) {
+	if (of_property_present(dev_node, "xlnx,tcm-mode")) {
 		ret = of_property_read_u32(dev_node, "xlnx,tcm-mode", (u32 *)&tcm_mode);
 		if (ret)
 			return ret;
@@ -1162,18 +1331,22 @@ static int zynqmp_r5_cluster_init(struct zynqmp_r5_cluster *cluster)
 
 	/*
 	 * Number of cores is decided by number of child nodes of
-	 * r5f subsystem node in dts. If Split mode is used in dts
-	 * 2 child nodes are expected.
+	 * r5f subsystem node in dts.
+	 * In split mode maximum two child nodes are expected.
+	 * However, only single core can be enabled too.
+	 * Driver can handle following configuration in split mode:
+	 * 1) core0 enabled, core1 disabled
+	 * 2) core0 disabled, core1 enabled
+	 * 3) core0 and core1 both are enabled.
+	 * For now, no more than two cores are expected per cluster
+	 * in split mode.
 	 * In lockstep mode if two child nodes are available,
 	 * only use first child node and consider it as core0
 	 * and ignore core1 dt node.
 	 */
 	core_count = of_get_available_child_count(dev_node);
-	if (core_count == 0) {
+	if (core_count == 0 || core_count > 2) {
 		dev_err(dev, "Invalid number of r5 cores %d", core_count);
-		return -EINVAL;
-	} else if (cluster_mode == SPLIT_MODE && core_count != 2) {
-		dev_err(dev, "Invalid number of r5 cores for split mode\n");
 		return -EINVAL;
 	} else if (cluster_mode == LOCKSTEP_MODE && core_count == 2) {
 		dev_warn(dev, "Only r5 core0 will be used\n");
@@ -1297,6 +1470,45 @@ static void zynqmp_r5_cluster_exit(void *data)
 }
 
 /*
+ * zynqmp_r5_remoteproc_shutdown()
+ * Follow shutdown sequence in case of kexec call.
+ *
+ * @pdev: domain platform device for cluster
+ *
+ * Return: None.
+ */
+static void zynqmp_r5_remoteproc_shutdown(struct platform_device *pdev)
+{
+	const char *rproc_state_str = NULL;
+	struct zynqmp_r5_cluster *cluster;
+	struct zynqmp_r5_core *r5_core;
+	struct rproc *rproc;
+	int i, ret = 0;
+
+	cluster = platform_get_drvdata(pdev);
+
+	for (i = 0; i < cluster->core_count; i++) {
+		r5_core = cluster->r5_cores[i];
+		rproc = r5_core->rproc;
+
+		if (rproc->state == RPROC_RUNNING) {
+			ret = rproc_shutdown(rproc);
+			rproc_state_str = "shutdown";
+		} else if (rproc->state == RPROC_ATTACHED) {
+			ret = rproc_detach(rproc);
+			rproc_state_str = "detach";
+		} else {
+			ret = 0;
+		}
+
+		if (ret) {
+			dev_err(cluster->dev, "failed to %s rproc %d\n",
+				rproc_state_str, rproc->index);
+		}
+	}
+}
+
+/*
  * zynqmp_r5_remoteproc_probe()
  * parse device-tree, initialize hardware and allocate required resources
  * and remoteproc ops
@@ -1357,6 +1569,7 @@ static struct platform_driver zynqmp_r5_remoteproc_driver = {
 		.name = "zynqmp_r5_remoteproc",
 		.of_match_table = zynqmp_r5_remoteproc_match,
 	},
+	.shutdown = zynqmp_r5_remoteproc_shutdown,
 };
 module_platform_driver(zynqmp_r5_remoteproc_driver);
 

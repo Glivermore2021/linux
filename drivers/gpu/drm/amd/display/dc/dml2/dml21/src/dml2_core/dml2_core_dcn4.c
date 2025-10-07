@@ -2,7 +2,6 @@
 //
 // Copyright 2024 Advanced Micro Devices, Inc.
 
-
 #include "dml2_internal_shared_types.h"
 #include "dml2_core_shared_types.h"
 #include "dml2_core_dcn4.h"
@@ -70,89 +69,12 @@ struct dml2_core_ip_params core_dcn4_ip_caps_base = {
 	.max_num_dp2p0_streams = 4,
 	.imall_supported = 1,
 	.max_flip_time_us = 80,
+	.max_flip_time_lines = 32,
 	.words_per_channel = 16,
 
 	.subvp_fw_processing_delay_us = 15,
 	.subvp_pstate_allow_width_us = 20,
 	.subvp_swath_height_margin_lines = 16,
-};
-
-struct dml2_core_ip_params core_dcn4sw_ip_caps_base = {
-	.vblank_nom_default_us = 668,
-	.remote_iommu_outstanding_translations = 256,
-	.rob_buffer_size_kbytes = 192,
-	.config_return_buffer_size_in_kbytes = 1280,
-	.config_return_buffer_segment_size_in_kbytes = 64,
-	.compressed_buffer_segment_size_in_kbytes = 64,
-	.dpte_buffer_size_in_pte_reqs_luma = 68,
-	.dpte_buffer_size_in_pte_reqs_chroma = 36,
-	.pixel_chunk_size_kbytes = 8,
-	.alpha_pixel_chunk_size_kbytes = 4,
-	.min_pixel_chunk_size_bytes = 1024,
-	.writeback_chunk_size_kbytes = 8,
-	.line_buffer_size_bits = 1171920,
-	.max_line_buffer_lines = 32,
-	.writeback_interface_buffer_size_kbytes = 90,
-
-	//Number of pipes after DCN Pipe harvesting
-	.max_num_dpp = 4,
-	.max_num_otg = 4,
-	.max_num_wb = 1,
-	.max_dchub_pscl_bw_pix_per_clk = 4,
-	.max_pscl_lb_bw_pix_per_clk = 2,
-	.max_lb_vscl_bw_pix_per_clk = 4,
-	.max_vscl_hscl_bw_pix_per_clk = 4,
-	.max_hscl_ratio = 6,
-	.max_vscl_ratio = 6,
-	.max_hscl_taps = 8,
-	.max_vscl_taps = 8,
-	.dispclk_ramp_margin_percent = 1,
-	.dppclk_delay_subtotal = 47,
-	.dppclk_delay_scl = 50,
-	.dppclk_delay_scl_lb_only = 16,
-	.dppclk_delay_cnvc_formatter = 28,
-	.dppclk_delay_cnvc_cursor = 6,
-	.cursor_buffer_size = 24,
-	.cursor_chunk_size = 2,
-	.dispclk_delay_subtotal = 125,
-	.max_inter_dcn_tile_repeaters = 8,
-	.writeback_max_hscl_ratio = 1,
-	.writeback_max_vscl_ratio = 1,
-	.writeback_min_hscl_ratio = 1,
-	.writeback_min_vscl_ratio = 1,
-	.writeback_max_hscl_taps = 1,
-	.writeback_max_vscl_taps = 1,
-	.writeback_line_buffer_buffer_size = 0,
-	.num_dsc = 4,
-	.maximum_dsc_bits_per_component = 12,
-	.maximum_pixels_per_line_per_dsc_unit = 5760,
-	.dsc422_native_support = true,
-	.dcc_supported = true,
-	.ptoi_supported = false,
-
-	.cursor_64bpp_support = true,
-	.dynamic_metadata_vm_enabled = false,
-
-	.max_num_hdmi_frl_outputs = 1,
-	.max_num_dp2p0_outputs = 4,
-	.max_num_dp2p0_streams = 4,
-	.imall_supported = 1,
-	.max_flip_time_us = 80,
-	.words_per_channel = 16,
-
-	.subvp_fw_processing_delay_us = 15,
-	.subvp_pstate_allow_width_us = 20,
-	.subvp_swath_height_margin_lines = 16,
-
-	.dcn_mrq_present = 1,
-	.zero_size_buffer_entries = 512,
-	.compbuf_reserved_space_zs = 64,
-	.dcc_meta_buffer_size_bytes = 6272,
-	.meta_chunk_size_kbytes = 2,
-	.min_meta_chunk_size_bytes = 256,
-
-	.dchub_arb_to_ret_delay = 102,
-	.hostvm_mode = 1,
 };
 
 static void patch_ip_caps_with_explicit_ip_params(struct dml2_ip_capabilities *ip_caps, const struct dml2_core_ip_params *ip_params)
@@ -168,7 +90,9 @@ static void patch_ip_caps_with_explicit_ip_params(struct dml2_ip_capabilities *i
 	ip_caps->config_return_buffer_segment_size_in_kbytes = ip_params->config_return_buffer_segment_size_in_kbytes;
 	ip_caps->meta_fifo_size_in_kentries = ip_params->meta_fifo_size_in_kentries;
 	ip_caps->compressed_buffer_segment_size_in_kbytes = ip_params->compressed_buffer_segment_size_in_kbytes;
+	ip_caps->cursor_buffer_size = ip_params->cursor_buffer_size;
 	ip_caps->max_flip_time_us = ip_params->max_flip_time_us;
+	ip_caps->max_flip_time_lines = ip_params->max_flip_time_lines;
 	ip_caps->hostvm_mode = ip_params->hostvm_mode;
 
 	// FIXME_STAGE2: cleanup after adding all dv override to ip_caps
@@ -191,7 +115,9 @@ static void patch_ip_params_with_ip_caps(struct dml2_core_ip_params *ip_params, 
 	ip_params->config_return_buffer_segment_size_in_kbytes = ip_caps->config_return_buffer_segment_size_in_kbytes;
 	ip_params->meta_fifo_size_in_kentries = ip_caps->meta_fifo_size_in_kentries;
 	ip_params->compressed_buffer_segment_size_in_kbytes = ip_caps->compressed_buffer_segment_size_in_kbytes;
+	ip_params->cursor_buffer_size = ip_caps->cursor_buffer_size;
 	ip_params->max_flip_time_us = ip_caps->max_flip_time_us;
+	ip_params->max_flip_time_lines = ip_caps->max_flip_time_lines;
 	ip_params->hostvm_mode = ip_caps->hostvm_mode;
 }
 
@@ -215,13 +141,13 @@ bool core_dcn4_initialize(struct dml2_core_initialize_in_out *in_out)
 		core->clean_me_up.mode_lib.ip.subvp_fw_processing_delay_us = core_dcn4_ip_caps_base.subvp_pstate_allow_width_us;
 		core->clean_me_up.mode_lib.ip.subvp_swath_height_margin_lines = core_dcn4_ip_caps_base.subvp_swath_height_margin_lines;
 	} else {
-			memcpy(&core->clean_me_up.mode_lib.ip, &core_dcn4_ip_caps_base, sizeof(struct dml2_core_ip_params));
+		memcpy(&core->clean_me_up.mode_lib.ip, &core_dcn4_ip_caps_base, sizeof(struct dml2_core_ip_params));
 		patch_ip_params_with_ip_caps(&core->clean_me_up.mode_lib.ip, in_out->ip_caps);
-
 		core->clean_me_up.mode_lib.ip.imall_supported = false;
 	}
 
 	memcpy(&core->clean_me_up.mode_lib.soc, in_out->soc_bb, sizeof(struct dml2_soc_bb));
+	memcpy(&core->clean_me_up.mode_lib.ip_caps, in_out->ip_caps, sizeof(struct dml2_ip_capabilities));
 
 	return true;
 }
@@ -234,6 +160,7 @@ static void create_phantom_stream_from_main_stream(struct dml2_stream_parameters
 	phantom->timing.v_total = meta->v_total;
 	phantom->timing.v_active = meta->v_active;
 	phantom->timing.v_front_porch = meta->v_front_porch;
+	phantom->timing.v_blank_end = phantom->timing.v_total - phantom->timing.v_front_porch - phantom->timing.v_active;
 	phantom->timing.vblank_nom = phantom->timing.v_total - phantom->timing.v_active;
 	phantom->timing.drr_config.enabled = false;
 }
@@ -246,10 +173,12 @@ static void create_phantom_plane_from_main_plane(struct dml2_plane_parameters *p
 	phantom->stream_index = phantom_stream_index;
 	phantom->overrides.refresh_from_mall = dml2_refresh_from_mall_mode_override_force_disable;
 	phantom->overrides.legacy_svp_config = dml2_svp_mode_override_phantom_pipe_no_data_return;
-	phantom->composition.viewport.plane0.height = (long int unsigned) math_ceil2(
-		(double)phantom->composition.viewport.plane0.height * (double)phantom_stream->timing.v_active /	(double)main_stream->timing.v_active, 16.0);
-	phantom->composition.viewport.plane1.height = (long int unsigned) math_ceil2(
-		(double)phantom->composition.viewport.plane1.height * (double)phantom_stream->timing.v_active /	(double)main_stream->timing.v_active, 16.0);
+	phantom->composition.viewport.plane0.height = (long int unsigned) math_min2(math_ceil2(
+		(double)main->composition.scaler_info.plane0.v_ratio * (double)phantom_stream->timing.v_active, 16.0),
+		(double)main->composition.viewport.plane0.height);
+	phantom->composition.viewport.plane1.height = (long int unsigned) math_min2(math_ceil2(
+		(double)main->composition.scaler_info.plane1.v_ratio * (double)phantom_stream->timing.v_active, 16.0),
+		(double)main->composition.viewport.plane1.height);
 	phantom->immediate_flip = false;
 	phantom->dynamic_meta_data.enable = false;
 	phantom->cursor.num_cursors = 0;
@@ -324,7 +253,8 @@ static void expand_implict_subvp(const struct display_configuation_with_meta *di
 static void pack_mode_programming_params_with_implicit_subvp(struct dml2_core_instance *core, const struct display_configuation_with_meta *display_cfg,
 	const struct dml2_display_cfg *svp_expanded_display_cfg, struct dml2_display_cfg_programming *programming, struct dml2_core_scratch *scratch)
 {
-	unsigned int stream_index, plane_index, pipe_offset, stream_already_populated_mask, main_plane_index;
+	unsigned int stream_index, plane_index, pipe_offset, stream_already_populated_mask, main_plane_index, mcache_index;
+	unsigned int total_main_mcaches_required = 0;
 	int total_pipe_regs_copied = 0;
 	int dml_internal_pipe_index = 0;
 	const struct dml2_plane_parameters *main_plane;
@@ -344,6 +274,8 @@ static void pack_mode_programming_params_with_implicit_subvp(struct dml2_core_in
 	// Check if FAMS2 is required
 	if (display_cfg->stage3.performed && display_cfg->stage3.success) {
 		programming->fams2_required = display_cfg->stage3.fams2_required;
+
+		dml2_core_calcs_get_global_fams2_programming(&core->clean_me_up.mode_lib, display_cfg, &programming->fams2_global_config);
 	}
 
 	// Only loop over all the main streams (the implicit svp streams will be packed as part of the main stream)
@@ -386,31 +318,19 @@ static void pack_mode_programming_params_with_implicit_subvp(struct dml2_core_in
 
 		// Setup the appropriate p-state strategy
 		if (display_cfg->stage3.performed && display_cfg->stage3.success) {
-			switch (display_cfg->stage3.pstate_switch_modes[plane_index]) {
-			case dml2_uclk_pstate_support_method_vactive:
-			case dml2_uclk_pstate_support_method_vblank:
-			case dml2_uclk_pstate_support_method_fw_subvp_phantom:
-			case dml2_uclk_pstate_support_method_fw_drr:
-			case dml2_uclk_pstate_support_method_fw_vactive_drr:
-			case dml2_uclk_pstate_support_method_fw_vblank_drr:
-			case dml2_uclk_pstate_support_method_fw_subvp_phantom_drr:
-				programming->plane_programming[plane_index].uclk_pstate_support_method = display_cfg->stage3.pstate_switch_modes[plane_index];
-				break;
-			case dml2_uclk_pstate_support_method_reserved_hw:
-			case dml2_uclk_pstate_support_method_reserved_fw:
-			case dml2_uclk_pstate_support_method_reserved_fw_drr_fixed:
-			case dml2_uclk_pstate_support_method_reserved_fw_drr_var:
-			case dml2_uclk_pstate_support_method_not_supported:
-			case dml2_uclk_pstate_support_method_count:
-			default:
-				programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_not_supported;
-				break;
-			}
+			programming->plane_programming[plane_index].uclk_pstate_support_method = display_cfg->stage3.pstate_switch_modes[plane_index];
 		} else {
-			programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_not_supported;
+			programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_pstate_method_na;
 		}
 
 		dml2_core_calcs_get_mall_allocation(&core->clean_me_up.mode_lib, &programming->plane_programming[plane_index].surface_size_mall_bytes, dml_internal_pipe_index);
+
+		memcpy(&programming->plane_programming[plane_index].mcache_allocation,
+			&display_cfg->stage2.mcache_allocations[plane_index],
+			sizeof(struct dml2_mcache_surface_allocation));
+		total_main_mcaches_required += programming->plane_programming[plane_index].mcache_allocation.num_mcaches_plane0 +
+			programming->plane_programming[plane_index].mcache_allocation.num_mcaches_plane1 -
+			(programming->plane_programming[plane_index].mcache_allocation.last_slice_sharing.plane0_plane1 ? 1 : 0);
 
 		for (pipe_offset = 0; pipe_offset < programming->plane_programming[plane_index].num_dpps_required; pipe_offset++) {
 			// Assign storage for this pipe's register values
@@ -430,7 +350,8 @@ static void pack_mode_programming_params_with_implicit_subvp(struct dml2_core_in
 				/* unconditionally populate fams2 params */
 				dml2_core_calcs_get_stream_fams2_programming(&core->clean_me_up.mode_lib,
 					display_cfg,
-					&programming->stream_programming[main_plane->stream_index].fams2_params,
+					&programming->stream_programming[main_plane->stream_index].fams2_base_params,
+					&programming->stream_programming[main_plane->stream_index].fams2_sub_params,
 					programming->stream_programming[main_plane->stream_index].uclk_pstate_method,
 					plane_index);
 
@@ -449,6 +370,22 @@ static void pack_mode_programming_params_with_implicit_subvp(struct dml2_core_in
 		memcpy(&programming->plane_programming[main_plane_index].phantom_plane.descriptor, phantom_plane, sizeof(struct dml2_plane_parameters));
 
 		dml2_core_calcs_get_mall_allocation(&core->clean_me_up.mode_lib, &programming->plane_programming[main_plane_index].svp_size_mall_bytes, dml_internal_pipe_index);
+
+		/* generate mcache allocation, phantoms use identical mcache configuration, but in the MALL set and unique mcache ID's beginning after all main ID's */
+		memcpy(&programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation,
+			&programming->plane_programming[main_plane_index].mcache_allocation,
+			sizeof(struct dml2_mcache_surface_allocation));
+		for (mcache_index = 0; mcache_index < programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.num_mcaches_plane0; mcache_index++) {
+			programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.global_mcache_ids_plane0[mcache_index] += total_main_mcaches_required;
+			programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.global_mcache_ids_mall_plane0[mcache_index] =
+				programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.global_mcache_ids_plane0[mcache_index];
+		}
+		for (mcache_index = 0; mcache_index < programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.num_mcaches_plane1; mcache_index++) {
+			programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.global_mcache_ids_plane1[mcache_index] += total_main_mcaches_required;
+			programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.global_mcache_ids_mall_plane1[mcache_index] =
+				programming->plane_programming[main_plane_index].phantom_plane.mcache_allocation.global_mcache_ids_plane1[mcache_index];
+		}
+
 		for (pipe_offset = 0; pipe_offset < programming->plane_programming[main_plane_index].num_dpps_required; pipe_offset++) {
 			// Assign storage for this pipe's register values
 			programming->plane_programming[main_plane_index].phantom_plane.pipe_regs[pipe_offset] = &programming->pipe_regs[total_pipe_regs_copied];
@@ -519,10 +456,10 @@ bool core_dcn4_mode_support(struct dml2_core_mode_support_in_out *in_out)
 		in_out->mode_support_result.global.active.urgent_bw_dram_kbps = (unsigned long)math_ceil2((l->mode_support_ex_params.out_evaluation_info->urg_bandwidth_required_flip[dml2_core_internal_soc_state_sys_active][dml2_core_internal_bw_dram] * 1000), 1.0);
 		in_out->mode_support_result.global.svp_prefetch.average_bw_dram_kbps = (unsigned long)math_ceil2((l->mode_support_ex_params.out_evaluation_info->avg_bandwidth_required[dml2_core_internal_soc_state_svp_prefetch][dml2_core_internal_bw_dram] * 1000), 1.0);
 		in_out->mode_support_result.global.svp_prefetch.urgent_bw_dram_kbps = (unsigned long)math_ceil2((l->mode_support_ex_params.out_evaluation_info->urg_bandwidth_required_flip[dml2_core_internal_soc_state_svp_prefetch][dml2_core_internal_bw_dram] * 1000), 1.0);
-		dml2_printf("DML::%s: in_out->mode_support_result.global.active.urgent_bw_sdp_kbps = %ld\n", __func__, in_out->mode_support_result.global.active.urgent_bw_sdp_kbps);
-		dml2_printf("DML::%s: in_out->mode_support_result.global.svp_prefetch.urgent_bw_sdp_kbps = %ld\n", __func__, in_out->mode_support_result.global.svp_prefetch.urgent_bw_sdp_kbps);
-		dml2_printf("DML::%s: in_out->mode_support_result.global.active.urgent_bw_dram_kbps = %ld\n", __func__, in_out->mode_support_result.global.active.urgent_bw_dram_kbps);
-		dml2_printf("DML::%s: in_out->mode_support_result.global.svp_prefetch.urgent_bw_dram_kbps = %ld\n", __func__, in_out->mode_support_result.global.svp_prefetch.urgent_bw_dram_kbps);
+		DML_LOG_VERBOSE("DML::%s: in_out->mode_support_result.global.active.urgent_bw_sdp_kbps = %ld\n", __func__, in_out->mode_support_result.global.active.urgent_bw_sdp_kbps);
+		DML_LOG_VERBOSE("DML::%s: in_out->mode_support_result.global.svp_prefetch.urgent_bw_sdp_kbps = %ld\n", __func__, in_out->mode_support_result.global.svp_prefetch.urgent_bw_sdp_kbps);
+		DML_LOG_VERBOSE("DML::%s: in_out->mode_support_result.global.active.urgent_bw_dram_kbps = %ld\n", __func__, in_out->mode_support_result.global.active.urgent_bw_dram_kbps);
+		DML_LOG_VERBOSE("DML::%s: in_out->mode_support_result.global.svp_prefetch.urgent_bw_dram_kbps = %ld\n", __func__, in_out->mode_support_result.global.svp_prefetch.urgent_bw_dram_kbps);
 
 		for (i = 0; i < l->svp_expanded_display_cfg.num_planes; i++) {
 			in_out->mode_support_result.per_plane[i].dppclk_khz = (unsigned int)(core->clean_me_up.mode_lib.ms.RequiredDPPCLK[i] * 1000);
@@ -572,7 +509,7 @@ bool core_dcn4_mode_support(struct dml2_core_mode_support_in_out *in_out)
 			stream_index = l->svp_expanded_display_cfg.plane_descriptors[i].stream_index;
 
 			in_out->mode_support_result.per_stream[stream_index].dscclk_khz = (unsigned int)core->clean_me_up.mode_lib.ms.required_dscclk_freq_mhz[i] * 1000;
-			dml2_printf("CORE_DCN4::%s: i=%d stream_index=%d, in_out->mode_support_result.per_stream[stream_index].dscclk_khz = %u\n", __func__, i, stream_index, in_out->mode_support_result.per_stream[stream_index].dscclk_khz);
+			DML_LOG_VERBOSE("CORE_DCN4::%s: i=%d stream_index=%d, in_out->mode_support_result.per_stream[stream_index].dscclk_khz = %u\n", __func__, i, stream_index, in_out->mode_support_result.per_stream[stream_index].dscclk_khz);
 
 			if (!((stream_bitmask >> stream_index) & 0x1)) {
 				in_out->mode_support_result.cfg_support_info.stream_support_info[stream_index].odms_used = odm_count;
@@ -621,7 +558,7 @@ bool core_dcn4_mode_programming(struct dml2_core_mode_programming_in_out *in_out
 	l->mode_programming_ex_params.min_clk_table = in_out->instance->minimum_clock_table;
 	l->mode_programming_ex_params.cfg_support_info = in_out->cfg_support_info;
 	l->mode_programming_ex_params.programming = in_out->programming;
-	l->mode_programming_ex_params.min_clk_index = lookup_uclk_dpm_index_by_freq(in_out->programming->min_clocks.dcn4.active.uclk_khz,
+	l->mode_programming_ex_params.min_clk_index = lookup_uclk_dpm_index_by_freq(in_out->programming->min_clocks.dcn4x.active.uclk_khz,
 		&core->clean_me_up.mode_lib.soc);
 
 	result = dml2_core_calcs_mode_programming_ex(&l->mode_programming_ex_params);
@@ -641,22 +578,26 @@ bool core_dcn4_mode_programming(struct dml2_core_mode_programming_in_out *in_out
 			for (plane_index = 0; plane_index < in_out->programming->display_config.num_planes; plane_index++) {
 				in_out->programming->plane_programming[plane_index].num_dpps_required = core->clean_me_up.mode_lib.mp.NoOfDPP[plane_index];
 
-			if (in_out->programming->display_config.plane_descriptors->overrides.legacy_svp_config == dml2_svp_mode_override_main_pipe)
-				in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_fw_subvp_phantom;
-			else if (in_out->programming->display_config.plane_descriptors->overrides.legacy_svp_config == dml2_svp_mode_override_phantom_pipe)
-				in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_fw_subvp_phantom;
-			else if (in_out->programming->display_config.plane_descriptors->overrides.legacy_svp_config == dml2_svp_mode_override_phantom_pipe_no_data_return)
-				in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_fw_subvp_phantom;
-			else {
-				if (core->clean_me_up.mode_lib.mp.MaxActiveDRAMClockChangeLatencySupported[plane_index] >= core->clean_me_up.mode_lib.soc.power_management_parameters.dram_clk_change_blackout_us)
-					in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_vactive;
-				else if (core->clean_me_up.mode_lib.mp.TWait[plane_index] >= core->clean_me_up.mode_lib.soc.power_management_parameters.dram_clk_change_blackout_us)
-					in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_vblank;
-				else
-					in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_uclk_pstate_support_method_not_supported;
-			}
+				if (in_out->programming->display_config.plane_descriptors[plane_index].overrides.legacy_svp_config == dml2_svp_mode_override_main_pipe)
+					in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_pstate_method_fw_svp;
+				else if (in_out->programming->display_config.plane_descriptors[plane_index].overrides.legacy_svp_config == dml2_svp_mode_override_phantom_pipe)
+					in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_pstate_method_fw_svp;
+				else if (in_out->programming->display_config.plane_descriptors[plane_index].overrides.legacy_svp_config == dml2_svp_mode_override_phantom_pipe_no_data_return)
+					in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_pstate_method_fw_svp;
+				else {
+					if (core->clean_me_up.mode_lib.mp.MaxActiveDRAMClockChangeLatencySupported[plane_index] >= core->clean_me_up.mode_lib.soc.power_management_parameters.dram_clk_change_blackout_us)
+						in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_pstate_method_vactive;
+					else if (core->clean_me_up.mode_lib.mp.TWait[plane_index] >= core->clean_me_up.mode_lib.soc.power_management_parameters.dram_clk_change_blackout_us)
+						in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_pstate_method_vblank;
+					else
+						in_out->programming->plane_programming[plane_index].uclk_pstate_support_method = dml2_pstate_method_na;
+				}
 
 				dml2_core_calcs_get_mall_allocation(&core->clean_me_up.mode_lib, &in_out->programming->plane_programming[plane_index].surface_size_mall_bytes, dml_internal_pipe_index);
+
+				memcpy(&in_out->programming->plane_programming[plane_index].mcache_allocation,
+					&in_out->display_cfg->stage2.mcache_allocations[plane_index],
+					sizeof(struct dml2_mcache_surface_allocation));
 
 				for (pipe_offset = 0; pipe_offset < in_out->programming->plane_programming[plane_index].num_dpps_required; pipe_offset++) {
 					in_out->programming->plane_programming[plane_index].plane_descriptor = &in_out->programming->display_config.plane_descriptors[plane_index];

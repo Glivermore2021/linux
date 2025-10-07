@@ -17,6 +17,7 @@
 #include <linux/minmax.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
+#include <linux/string.h>
 #include <linux/wait.h>
 
 #include "logger.h"
@@ -327,8 +328,9 @@ static u32 __must_check pack_status(struct data_vio_compression_status status)
 
 /**
  * set_data_vio_compression_status() - Set the compression status of a data_vio.
- * @state: The expected current status of the data_vio.
- * @new_state: The status to set.
+ * @data_vio: The data_vio to change.
+ * @status: The expected current status of the data_vio.
+ * @new_status: The status to set.
  *
  * Return: true if the new status was set, false if the data_vio's compression status did not
  *         match the expected state, and so was left unchanged.
@@ -501,22 +503,11 @@ static void launch_data_vio(struct data_vio *data_vio, logical_block_number_t lb
 
 	memset(&data_vio->record_name, 0, sizeof(data_vio->record_name));
 	memset(&data_vio->duplicate, 0, sizeof(data_vio->duplicate));
+	vdo_reset_completion(&data_vio->decrement_completion);
 	vdo_reset_completion(completion);
 	completion->error_handler = handle_data_vio_error;
 	set_data_vio_logical_callback(data_vio, attempt_logical_block_lock);
 	vdo_enqueue_completion(completion, VDO_DEFAULT_Q_MAP_BIO_PRIORITY);
-}
-
-static bool is_zero_block(char *block)
-{
-	int i;
-
-	for (i = 0; i < VDO_BLOCK_SIZE; i += sizeof(u64)) {
-		if (*((u64 *) &block[i]))
-			return false;
-	}
-
-	return true;
 }
 
 static void copy_from_bio(struct bio *bio, char *data_ptr)
@@ -570,7 +561,7 @@ static void launch_bio(struct vdo *vdo, struct data_vio *data_vio, struct bio *b
 		 * we acknowledge the bio.
 		 */
 		copy_from_bio(bio, data_vio->vio.data);
-		data_vio->is_zero = is_zero_block(data_vio->vio.data);
+		data_vio->is_zero = mem_is_zero(data_vio->vio.data, VDO_BLOCK_SIZE);
 		data_vio->write = true;
 	}
 
@@ -835,7 +826,7 @@ static void destroy_data_vio(struct data_vio *data_vio)
  * @vdo: The vdo to which the pool will belong.
  * @pool_size: The number of data_vios in the pool.
  * @discard_limit: The maximum number of data_vios which may be used for discards.
- * @pool: A pointer to hold the newly allocated pool.
+ * @pool_ptr: A pointer to hold the newly allocated pool.
  */
 int make_data_vio_pool(struct vdo *vdo, data_vio_count_t pool_size,
 		       data_vio_count_t discard_limit, struct data_vio_pool **pool_ptr)
@@ -1073,35 +1064,6 @@ void dump_data_vio_pool(struct data_vio_pool *pool, bool dump_vios)
 	spin_unlock(&pool->lock);
 }
 
-data_vio_count_t get_data_vio_pool_active_discards(struct data_vio_pool *pool)
-{
-	return READ_ONCE(pool->discard_limiter.busy);
-}
-
-data_vio_count_t get_data_vio_pool_discard_limit(struct data_vio_pool *pool)
-{
-	return READ_ONCE(pool->discard_limiter.limit);
-}
-
-data_vio_count_t get_data_vio_pool_maximum_discards(struct data_vio_pool *pool)
-{
-	return READ_ONCE(pool->discard_limiter.max_busy);
-}
-
-int set_data_vio_pool_discard_limit(struct data_vio_pool *pool, data_vio_count_t limit)
-{
-	if (get_data_vio_pool_request_limit(pool) < limit) {
-		// The discard limit may not be higher than the data_vio limit.
-		return -EINVAL;
-	}
-
-	spin_lock(&pool->lock);
-	pool->discard_limiter.limit = limit;
-	spin_unlock(&pool->lock);
-
-	return VDO_SUCCESS;
-}
-
 data_vio_count_t get_data_vio_pool_active_requests(struct data_vio_pool *pool)
 {
 	return READ_ONCE(pool->limiter.busy);
@@ -1273,12 +1235,14 @@ static void clean_hash_lock(struct vdo_completion *completion)
 static void finish_cleanup(struct data_vio *data_vio)
 {
 	struct vdo_completion *completion = &data_vio->vio.completion;
+	u32 discard_size = min_t(u32, data_vio->remaining_discard,
+				 VDO_BLOCK_SIZE - data_vio->offset);
 
 	VDO_ASSERT_LOG_ONLY(data_vio->allocation.lock == NULL,
 			    "complete data_vio has no allocation lock");
 	VDO_ASSERT_LOG_ONLY(data_vio->hash_lock == NULL,
 			    "complete data_vio has no hash lock");
-	if ((data_vio->remaining_discard <= VDO_BLOCK_SIZE) ||
+	if ((data_vio->remaining_discard <= discard_size) ||
 	    (completion->result != VDO_SUCCESS)) {
 		struct data_vio_pool *pool = completion->vdo->data_vio_pool;
 
@@ -1287,12 +1251,12 @@ static void finish_cleanup(struct data_vio *data_vio)
 		return;
 	}
 
-	data_vio->remaining_discard -= min_t(u32, data_vio->remaining_discard,
-					     VDO_BLOCK_SIZE - data_vio->offset);
+	data_vio->remaining_discard -= discard_size;
 	data_vio->is_partial = (data_vio->remaining_discard < VDO_BLOCK_SIZE);
 	data_vio->read = data_vio->is_partial;
 	data_vio->offset = 0;
 	completion->requeue = true;
+	data_vio->first_reference_operation_complete = false;
 	launch_data_vio(data_vio, data_vio->logical.lbn + 1);
 }
 
@@ -1484,7 +1448,7 @@ static void modify_for_partial_write(struct vdo_completion *completion)
 		copy_from_bio(bio, data + data_vio->offset);
 	}
 
-	data_vio->is_zero = is_zero_block(data);
+	data_vio->is_zero = mem_is_zero(data, VDO_BLOCK_SIZE);
 	data_vio->read = false;
 	launch_data_vio_logical_callback(data_vio,
 					 continue_data_vio_with_block_map_slot);
@@ -1965,7 +1929,8 @@ static void allocate_block(struct vdo_completion *completion)
 		.state = VDO_MAPPING_STATE_UNCOMPRESSED,
 	};
 
-	if (data_vio->fua) {
+	if (data_vio->fua ||
+	    data_vio->remaining_discard > (u32) (VDO_BLOCK_SIZE - data_vio->offset)) {
 		prepare_for_dedupe(data_vio);
 		return;
 	}
@@ -2042,7 +2007,6 @@ void continue_data_vio_with_block_map_slot(struct vdo_completion *completion)
 		return;
 	}
 
-
 	/*
 	 * We don't need to write any data, so skip allocation and just update the block map and
 	 * reference counts (via the journal).
@@ -2051,7 +2015,7 @@ void continue_data_vio_with_block_map_slot(struct vdo_completion *completion)
 	if (data_vio->is_zero)
 		data_vio->new_mapped.state = VDO_MAPPING_STATE_UNCOMPRESSED;
 
-	if (data_vio->remaining_discard > VDO_BLOCK_SIZE) {
+	if (data_vio->remaining_discard > (u32) (VDO_BLOCK_SIZE - data_vio->offset)) {
 		/* This is not the final block of a discard so we can't acknowledge it yet. */
 		update_metadata_for_data_vio_write(data_vio, NULL);
 		return;

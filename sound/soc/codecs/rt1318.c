@@ -30,7 +30,7 @@
 
 #include "rt1318.h"
 
-static struct reg_sequence init_list[] = {
+static const struct reg_sequence init_list[] = {
 	{ 0x0000C000, 0x01},
 	{ 0x0000F20D, 0x00},
 	{ 0x0000F212, 0x3E},
@@ -254,7 +254,6 @@ static struct reg_sequence init_list[] = {
 	{ 0x0000C320, 0x20},
 	{ 0x0000C203, 0x9C},
 };
-#define rt1318_INIT_REG_LEN ARRAY_SIZE(init_list)
 
 static const struct reg_default rt1318_reg[] = {
 	{ 0xc000, 0x00 },
@@ -1148,14 +1147,14 @@ MODULE_DEVICE_TABLE(i2c, rt1318_i2c_id);
 
 static const struct of_device_id rt1318_of_match[] = {
 	{ .compatible = "realtek,rt1318", },
-	{},
+	{ }
 };
 MODULE_DEVICE_TABLE(of, rt1318_of_match);
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id rt1318_acpi_match[] = {
-	{ "10EC1318", 0},
-	{ },
+	{ "10EC1318" },
+	{ }
 };
 MODULE_DEVICE_TABLE(acpi, rt1318_acpi_match);
 #endif

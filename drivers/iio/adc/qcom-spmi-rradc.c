@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2016-2017, 2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022 Linaro Limited.
- *  Author: Caleb Connolly <caleb.connolly@linaro.org>
+ *  Author: Casey Connolly <casey.connolly@linaro.org>
  *
  * This driver is for the Round Robin ADC found in the pmi8998 and pm660 PMICs.
  */
@@ -20,7 +20,7 @@
 #include <linux/types.h>
 #include <linux/units.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/types.h>
@@ -1002,7 +1002,7 @@ static int rradc_probe(struct platform_device *pdev)
 static const struct of_device_id rradc_match_table[] = {
 	{ .compatible = "qcom,pm660-rradc" },
 	{ .compatible = "qcom,pmi8998-rradc" },
-	{}
+	{ }
 };
 MODULE_DEVICE_TABLE(of, rradc_match_table);
 
@@ -1016,5 +1016,5 @@ static struct platform_driver rradc_driver = {
 module_platform_driver(rradc_driver);
 
 MODULE_DESCRIPTION("QCOM SPMI PMIC RR ADC driver");
-MODULE_AUTHOR("Caleb Connolly <caleb.connolly@linaro.org>");
+MODULE_AUTHOR("Casey Connolly <casey.connolly@linaro.org>");
 MODULE_LICENSE("GPL");

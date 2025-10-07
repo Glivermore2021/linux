@@ -498,6 +498,13 @@ static ssize_t evdev_write(struct file *file, const char __user *buffer,
 	struct input_event event;
 	int retval = 0;
 
+	/*
+	 * Limit amount of data we inject into the input subsystem so that
+	 * we do not hold evdev->mutex for too long. 4096 bytes corresponds
+	 * to 170 input events.
+	 */
+	count = min(count, 4096);
+
 	if (count != 0 && count < input_event_size())
 		return -EINVAL;
 
@@ -1292,7 +1299,6 @@ static const struct file_operations evdev_fops = {
 	.compat_ioctl	= evdev_ioctl_compat,
 #endif
 	.fasync		= evdev_fasync,
-	.llseek		= no_llseek,
 };
 
 /*
@@ -1402,8 +1408,12 @@ static void evdev_disconnect(struct input_handle *handle)
 }
 
 static const struct input_device_id evdev_ids[] = {
-	{ .driver_info = 1 },	/* Matches all devices */
-	{ },			/* Terminating zero entry */
+	{
+		/* Matches all devices */
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
+		.evbit = { BIT_MASK(EV_SYN) },
+	},
+	{ }	/* Terminating zero entry */
 };
 
 MODULE_DEVICE_TABLE(input, evdev_ids);
