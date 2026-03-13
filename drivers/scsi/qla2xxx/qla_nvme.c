@@ -1286,13 +1286,13 @@ void qla2xxx_process_purls_iocb(void **pkt, struct rsp_que **rsp)
 		goto out;
 	}
 
-	uctx = kzalloc(sizeof(*uctx), GFP_ATOMIC);
+	uctx = kzalloc_obj(*uctx, GFP_ATOMIC);
 	if (!uctx) {
 		ql_log(ql_log_info, vha, 0x2126, "Failed allocate memory\n");
 		a.reason = FCNVME_RJT_RC_LOGIC;
 		a.explanation = FCNVME_RJT_EXP_NONE;
 		xmt_reject = true;
-		kfree(item);
+		qla24xx_free_purex_item(item);
 		goto out;
 	}
 
@@ -1308,7 +1308,7 @@ void qla2xxx_process_purls_iocb(void **pkt, struct rsp_que **rsp)
 
 	ql_dbg(ql_dbg_unsol, vha, 0x2121,
 	       "PURLS OP[%01x] size %d xchg addr 0x%x portid %06x\n",
-	       item->iocb[3], item->size, uctx->exchange_address,
+	       item->iocb.iocb[3], item->size, uctx->exchange_address,
 	       fcport->d_id.b24);
 	/* +48    0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
 	 * ----- -----------------------------------------------

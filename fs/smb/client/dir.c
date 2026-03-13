@@ -14,7 +14,6 @@
 #include <linux/mount.h>
 #include <linux/file.h>
 #include "cifsfs.h"
-#include "cifspdu.h"
 #include "cifsglob.h"
 #include "cifsproto.h"
 #include "cifs_debug.h"
@@ -83,10 +82,11 @@ char *__build_path_from_dentry_optional_prefix(struct dentry *direntry, void *pa
 					       const char *tree, int tree_len,
 					       bool prefix)
 {
-	int dfsplen;
-	int pplen = 0;
-	struct cifs_sb_info *cifs_sb = CIFS_SB(direntry->d_sb);
+	struct cifs_sb_info *cifs_sb = CIFS_SB(direntry);
+	unsigned int sbflags = cifs_sb_flags(cifs_sb);
 	char dirsep = CIFS_DIR_SEP(cifs_sb);
+	int pplen = 0;
+	int dfsplen;
 	char *s;
 
 	if (unlikely(!page))
@@ -97,7 +97,7 @@ char *__build_path_from_dentry_optional_prefix(struct dentry *direntry, void *pa
 	else
 		dfsplen = 0;
 
-	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_USE_PREFIX_PATH)
+	if (sbflags & CIFS_MOUNT_USE_PREFIX_PATH)
 		pplen = cifs_sb->prepath ? strlen(cifs_sb->prepath) + 1 : 0;
 
 	s = dentry_path_raw(direntry, page, PATH_MAX);
@@ -124,7 +124,7 @@ char *__build_path_from_dentry_optional_prefix(struct dentry *direntry, void *pa
 	if (dfsplen) {
 		s -= dfsplen;
 		memcpy(s, tree, dfsplen);
-		if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_POSIX_PATHS) {
+		if (sbflags & CIFS_MOUNT_POSIX_PATHS) {
 			int i;
 			for (i = 0; i < dfsplen; i++) {
 				if (s[i] == '\\')
@@ -153,7 +153,7 @@ char *build_path_from_dentry_optional_prefix(struct dentry *direntry, void *page
 static int
 check_name(struct dentry *direntry, struct cifs_tcon *tcon)
 {
-	struct cifs_sb_info *cifs_sb = CIFS_SB(direntry->d_sb);
+	struct cifs_sb_info *cifs_sb = CIFS_SB(direntry);
 	int i;
 
 	if (unlikely(tcon->fsAttrInfo.MaxPathNameComponentLength &&
@@ -161,7 +161,7 @@ check_name(struct dentry *direntry, struct cifs_tcon *tcon)
 		     le32_to_cpu(tcon->fsAttrInfo.MaxPathNameComponentLength)))
 		return -ENAMETOOLONG;
 
-	if (!(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_POSIX_PATHS)) {
+	if (!(cifs_sb_flags(cifs_sb) & CIFS_MOUNT_POSIX_PATHS)) {
 		for (i = 0; i < direntry->d_name.len; i++) {
 			if (direntry->d_name.name[i] == '\\') {
 				cifs_dbg(FYI, "Invalid file name\n");
@@ -182,11 +182,12 @@ static int cifs_do_create(struct inode *inode, struct dentry *direntry, unsigned
 	int rc = -ENOENT;
 	int create_options = CREATE_NOT_DIR;
 	int desired_access;
-	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
+	struct cifs_sb_info *cifs_sb = CIFS_SB(inode);
 	struct cifs_tcon *tcon = tlink_tcon(tlink);
 	const char *full_path;
 	void *page = alloc_dentry_path();
 	struct inode *newinode = NULL;
+	unsigned int sbflags = cifs_sb_flags(cifs_sb);
 	int disposition;
 	struct TCP_Server_Info *server = tcon->ses->server;
 	struct cifs_open_parms oparms;
@@ -200,8 +201,8 @@ static int cifs_do_create(struct inode *inode, struct dentry *direntry, unsigned
 
 	full_path = build_path_from_dentry(direntry, page);
 	if (IS_ERR(full_path)) {
-		free_dentry_path(page);
-		return PTR_ERR(full_path);
+		rc = PTR_ERR(full_path);
+		goto out;
 	}
 
 	/* If we're caching, we need to be able to fill in around partial writes. */
@@ -307,6 +308,7 @@ static int cifs_do_create(struct inode *inode, struct dentry *direntry, unsigned
 		goto out;
 	}
 
+	create_options |= cifs_open_create_options(oflags, create_options);
 	/*
 	 * if we're not using unix extensions, see if we need to set
 	 * ATTR_READONLY on the create call
@@ -375,7 +377,7 @@ retry_open:
 				.device	= 0,
 		};
 
-		if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_SET_UID) {
+		if (sbflags & CIFS_MOUNT_SET_UID) {
 			args.uid = current_fsuid();
 			if (inode->i_mode & S_ISGID)
 				args.gid = inode->i_gid;
@@ -412,9 +414,9 @@ cifs_create_get_file_info:
 			if (server->ops->set_lease_key)
 				server->ops->set_lease_key(newinode, fid);
 			if ((*oplock & CIFS_CREATE_ACTION) && S_ISREG(newinode->i_mode)) {
-				if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_DYNPERM)
+				if (sbflags & CIFS_MOUNT_DYNPERM)
 					newinode->i_mode = mode;
-				if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_SET_UID) {
+				if (sbflags & CIFS_MOUNT_SET_UID) {
 					newinode->i_uid = current_fsuid();
 					if (inode->i_mode & S_ISGID)
 						newinode->i_gid = inode->i_gid;
@@ -457,21 +459,23 @@ out_err:
 
 int
 cifs_atomic_open(struct inode *inode, struct dentry *direntry,
-		 struct file *file, unsigned oflags, umode_t mode)
+		 struct file *file, unsigned int oflags, umode_t mode)
 {
-	int rc;
-	unsigned int xid;
+	struct cifs_sb_info *cifs_sb = CIFS_SB(inode);
+	struct cifs_open_info_data buf = {};
+	struct TCP_Server_Info *server;
+	struct cifsFileInfo *file_info;
+	struct cifs_pending_open open;
+	struct cifs_fid fid = {};
 	struct tcon_link *tlink;
 	struct cifs_tcon *tcon;
-	struct TCP_Server_Info *server;
-	struct cifs_fid fid = {};
-	struct cifs_pending_open open;
+	unsigned int sbflags;
+	unsigned int xid;
 	__u32 oplock;
-	struct cifsFileInfo *file_info;
-	struct cifs_open_info_data buf = {};
+	int rc;
 
-	if (unlikely(cifs_forced_shutdown(CIFS_SB(inode->i_sb))))
-		return -EIO;
+	if (unlikely(cifs_forced_shutdown(cifs_sb)))
+		return smb_EIO(smb_eio_trace_forced_shutdown);
 
 	/*
 	 * Posix open is only called (at lookup time) for file create now. For
@@ -500,7 +504,7 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 	cifs_dbg(FYI, "parent inode = 0x%p name is: %pd and dentry = 0x%p\n",
 		 inode, direntry, direntry);
 
-	tlink = cifs_sb_tlink(CIFS_SB(inode->i_sb));
+	tlink = cifs_sb_tlink(cifs_sb);
 	if (IS_ERR(tlink)) {
 		rc = PTR_ERR(tlink);
 		goto out_free_xid;
@@ -537,13 +541,13 @@ cifs_atomic_open(struct inode *inode, struct dentry *direntry,
 		goto out;
 	}
 
-	if (file->f_flags & O_DIRECT &&
-	    CIFS_SB(inode->i_sb)->mnt_cifs_flags & CIFS_MOUNT_STRICT_IO) {
-		if (CIFS_SB(inode->i_sb)->mnt_cifs_flags & CIFS_MOUNT_NO_BRL)
+	sbflags = cifs_sb_flags(cifs_sb);
+	if ((file->f_flags & O_DIRECT) && (sbflags & CIFS_MOUNT_STRICT_IO)) {
+		if (sbflags & CIFS_MOUNT_NO_BRL)
 			file->f_op = &cifs_file_direct_nobrl_ops;
 		else
 			file->f_op = &cifs_file_direct_ops;
-		}
+	}
 
 	file_info = cifs_new_fileinfo(&fid, file, tlink, oplock, buf.symlink_target);
 	if (file_info == NULL) {
@@ -589,7 +593,7 @@ int cifs_create(struct mnt_idmap *idmap, struct inode *inode,
 		 inode, direntry, direntry);
 
 	if (unlikely(cifs_forced_shutdown(CIFS_SB(inode->i_sb)))) {
-		rc = -EIO;
+		rc = smb_EIO(smb_eio_trace_forced_shutdown);
 		goto out_free_xid;
 	}
 
@@ -631,7 +635,7 @@ int cifs_mknod(struct mnt_idmap *idmap, struct inode *inode,
 
 	cifs_sb = CIFS_SB(inode->i_sb);
 	if (unlikely(cifs_forced_shutdown(cifs_sb)))
-		return -EIO;
+		return smb_EIO(smb_eio_trace_forced_shutdown);
 
 	tlink = cifs_sb_tlink(cifs_sb);
 	if (IS_ERR(tlink))
@@ -678,7 +682,7 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 	const char *full_path;
 	void *page;
 	int retry_count = 0;
-	struct cached_fid *cfid = NULL;
+	struct dentry *de;
 
 	xid = get_xid();
 
@@ -690,16 +694,15 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 	cifs_sb = CIFS_SB(parent_dir_inode->i_sb);
 	tlink = cifs_sb_tlink(cifs_sb);
 	if (IS_ERR(tlink)) {
-		free_xid(xid);
-		return ERR_CAST(tlink);
+		de = ERR_CAST(tlink);
+		goto free_xid;
 	}
 	pTcon = tlink_tcon(tlink);
 
 	rc = check_name(direntry, pTcon);
 	if (unlikely(rc)) {
-		cifs_put_tlink(tlink);
-		free_xid(xid);
-		return ERR_PTR(rc);
+		de = ERR_PTR(rc);
+		goto put_tlink;
 	}
 
 	/* can not grab the rename sem here since it would
@@ -708,15 +711,15 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 	page = alloc_dentry_path();
 	full_path = build_path_from_dentry(direntry, page);
 	if (IS_ERR(full_path)) {
-		cifs_put_tlink(tlink);
-		free_xid(xid);
-		free_dentry_path(page);
-		return ERR_CAST(full_path);
+		de = ERR_CAST(full_path);
+		goto free_dentry_path;
 	}
 
 	if (d_really_is_positive(direntry)) {
 		cifs_dbg(FYI, "non-NULL inode in lookup\n");
 	} else {
+		struct cached_fid *cfid = NULL;
+
 		cifs_dbg(FYI, "NULL inode in lookup\n");
 
 		/*
@@ -775,25 +778,27 @@ again:
 	}
 
 out:
+	de = d_splice_alias(newInode, direntry);
+free_dentry_path:
 	free_dentry_path(page);
+put_tlink:
 	cifs_put_tlink(tlink);
+free_xid:
 	free_xid(xid);
-	return d_splice_alias(newInode, direntry);
+	return de;
 }
 
 static int
 cifs_d_revalidate(struct inode *dir, const struct qstr *name,
 		  struct dentry *direntry, unsigned int flags)
 {
-	struct inode *inode = NULL;
-	struct cached_fid *cfid;
-	int rc;
-
 	if (flags & LOOKUP_RCU)
 		return -ECHILD;
 
 	if (d_really_is_positive(direntry)) {
-		inode = d_inode(direntry);
+		int rc;
+		struct inode *inode = d_inode(direntry);
+
 		if ((flags & LOOKUP_REVAL) && !CIFS_CACHE_READ(CIFS_I(inode)))
 			CIFS_I(inode)->time = 0; /* force reval */
 
@@ -836,6 +841,7 @@ cifs_d_revalidate(struct inode *dir, const struct qstr *name,
 	} else {
 		struct cifs_sb_info *cifs_sb = CIFS_SB(dir->i_sb);
 		struct cifs_tcon *tcon = cifs_sb_master_tcon(cifs_sb);
+		struct cached_fid *cfid;
 
 		if (!open_cached_dir_by_dentry(tcon, direntry->d_parent, &cfid)) {
 			/*
